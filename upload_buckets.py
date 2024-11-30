@@ -137,7 +137,7 @@ def process_upload_buckets(bucket_json):
                         # Close the bucket
                         if close_bucket(index_name, bucket_num, server_guid):
                             # Update the status to "uploaded"
-                            bucket_info["status"] = "pendingevict"
+                            bucket_info["status"] = "uploaded"
                             modified = True
 
     # Save updated JSON file if any changes were made
