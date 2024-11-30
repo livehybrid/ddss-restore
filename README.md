@@ -1,148 +1,194 @@
 
-# DDAA Restore
+# **DDAA Restore Workflow**
 
-This repository provides a set of Python scripts and tools to restore, process, upload, and manage Splunk buckets from S3. 
-The workflow includes scanning S3 for frozen buckets, processing them locally, uploading to SmartStore, and managing the lifecycle of these buckets.
+This Python script provides a comprehensive workflow for managing the restore and SmartStore integration process for Splunk buckets from S3, including:
 
-## Setup Instructions
+- Generating a bucket structure.
+- Rebuilding buckets locally.
+- Uploading buckets to SmartStore.
+- Checking the status of uploaded buckets.
+- Evicting buckets from local storage once uploaded.
 
-1. **Install Python 3.13**:
-   Ensure `python3.13-venv` and `python3.13-pip` are installed.
+---
 
-2. **Clone the Repository**:
+## **Features**
+1. **Generate Bucket Structure**: Scans the source S3 bucket for indexes and buckets, while also checking local status (`Hosts.data`) and the secondary S3 bucket for `receipt.json`.
+2. **Rebuild Buckets**: Allows the user to rebuild specific buckets locally.
+3. **Upload Buckets**: Automates uploading rebuilt buckets to Splunk SmartStore.
+4. **Check Bucket Status**: Monitors the status of uploaded buckets and updates their status.
+5. **Evict Buckets**: Evicts buckets from local storage after they are successfully uploaded.
+
+---
+
+## **Prerequisites**
+
+1. **Python Requirements**:
+   - Python 3.x
+   - Required libraries: `boto3`, `requests`, `urllib3`
+
+   Install dependencies:
    ```bash
-   git clone https://github.com/livehybrid/ddaa-restore.git
-   cd ddaa-restore
+   pip install boto3 requests urllib3
    ```
 
-3. **Create and Activate a Virtual Environment**:
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
+2. **Splunk Configuration**:
+   - Ensure Splunk is running locally and accessible at `https://localhost:8089`.
+   - Update the script with your Splunk credentials (`AUTH`) and URL (`SPLUNK_URL`).
 
-4. **Install Dependencies**:
-   ```bash
-   pip install requests boto3
-   ```
+3. **AWS Configuration**:
+   - Configure AWS credentials with access to the required S3 buckets (`DDAA_BUCKET_NAME` and `S2_BUCKET_NAME`):
+     ```bash
+     aws configure
+     ```
+
+4. **Local File System**:
+   - Buckets are assumed to be located at `/opt/splunk/var/lib/splunk`.
 
 ---
 
-## Process Workflow
+## **Usage**
 
-### Step 1: Generate the Bucket Structure
-Run the `generate_bucket_structure.py` script to scan the S3 bucket for frozen Splunk buckets:
+### **Running the Script**
+
+Run the script:
 ```bash
-python3 generate_bucket_structure.py
+python dda_restore_workflow.py
 ```
 
-**Output**: The script scans the specified S3 bucket and generates a `bucket_structure.json` file:
+### **Workflow**
+
+1. **Generate Bucket Structure**:
+   - The script scans the source S3 bucket (`DDAA_BUCKET_NAME`) and generates `bucket_structure.json` with the following statuses:
+     - **`todo`**: No local file or receipt found in S3.
+     - **`pendingupload`**: Bucket exists locally but no receipt found in S3.
+     - **`pendingevict`**: Bucket exists locally and receipt found in S3.
+     - **`done`**: Receipt found in S3, and bucket no longer needs local processing.
+
+2. **Process Buckets**:
+   - Enter the index name and number of buckets to rebuild locally:
+     - **Index name**: `requests_apm_prod` or any other valid index.
+     - **Number of buckets**: Enter `0` to skip rebuilding and proceed to check pending uploads or evictions.
+
+3. **Restart Splunk**:
+   - The script automatically restarts Splunk after processing buckets.
+
+4. **Upload Buckets**:
+   - Buckets with the `pendingupload` status are uploaded to SmartStore.
+
+5. **Check Buckets**:
+   - Monitors the status of uploaded buckets and updates their status to `pendingevict` if receipt is found.
+
+6. **Evict Buckets**:
+   - Buckets with `pendingevict` status are evicted from local storage, updating their status to `done`.
+
+---
+
+### **Command Line Prompts**
+
+1. **Enter Index Name**:
+   - Provide the name of the index to process (e.g., `requests_apm_prod`).
+   - Enter `0` to skip bucket rebuilding and proceed with pending uploads or evictions.
+
+2. **Enter Number of Buckets to Process**:
+   - Specify how many buckets to process for rebuilding. Enter `0` to skip this step.
+
+---
+
+### **File Structure**
+
+#### **Source S3 Bucket (`DDAA_BUCKET_NAME`)**:
 ```
-Scanning S3 bucket: scde-3usvpx5d8elc6o712-d0hrpb07azl9-testing2...
-Bucket structure saved to bucket_structure.json
+<index_name>/
+  db_1651670906_1651669557_0_CEB1E2B6-34F2-40EB-A2EF-10C5531556F9/
+```
+
+#### **Secondary S3 Bucket (`S2_BUCKET_NAME`)**:
+```
+<index_name>/db/<sha1[0:2]>/<sha1[2:4]>/<bucketNum>~<serverGUID>/receipt.json
+```
+
+#### **Local File System**:
+```
+/opt/splunk/var/lib/splunk/<index_name>/db/<bucket_name>/Hosts.data
+```
+
+#### **Output JSON File**:
+```json
+{
+  "requests_apm_prod": [
+    {
+      "bucket": "db_1651670906_1651669557_0_CEB1E2B6-34F2-40EB-A2EF-10C5531556F9",
+      "status": "todo"
+    }
+  ]
+}
 ```
 
 ---
 
-### Step 2: Process Buckets Locally
-Use the `process_buckets_from_json.py` script to process buckets locally:
+### **Status Flow**
+
+1. **Initial Status**:
+   - Scanned from `DDAA_BUCKET_NAME` and categorized based on local and secondary S3 checks:
+     - `todo`, `pendingupload`, `pendingevict`, `done`.
+
+2. **After Rebuilding**:
+   - Updated to `pendingupload`.
+
+3. **After Uploading**:
+   - Monitored and updated to `pendingevict`.
+
+4. **After Evicting**:
+   - Updated to `done`.
+
+---
+
+### **Key Functions**
+
+- **`generate_bucket_structure()`**:
+  - Scans `DDAA_BUCKET_NAME` and generates the initial `bucket_structure.json`.
+
+- **`process_buckets()`**:
+  - Processes buckets with `todo` status and updates them to `pendingupload`.
+
+- **`upload_buckets()`**:
+  - Uploads buckets with `pendingupload` status to Splunk SmartStore.
+
+- **`check_buckets()`**:
+  - Monitors uploaded buckets and updates their status to `pendingevict`.
+
+- **`evict_buckets()`**:
+  - Evicts buckets with `pendingevict` status and updates them to `done`.
+
+---
+
+### **Troubleshooting**
+
+- **AWS Permissions**:
+  - Ensure the IAM user has `s3:ListBucket` and `s3:GetObject` permissions for `DDAA_BUCKET_NAME` and `S2_BUCKET_NAME`.
+
+- **Splunk API Errors**:
+  - Verify Splunk credentials and ensure the server is accessible at `SPLUNK_URL`.
+
+- **Local Path Errors**:
+  - Ensure the local Splunk directory exists and matches the configured `LOCAL_BASE_PATH`.
+
+---
+
+### **Examples**
+
+#### **Generate Bucket Structure**
 ```bash
-python3 process_buckets_from_json.py
+python dda_restore_workflow.py
 ```
 
-- **Prompt 1**: Enter the index name (e.g., `main`).
-- **Prompt 2**: Enter the number of buckets to process (e.g., `2`).
+#### **Rebuild Buckets**
+- Enter `requests_apm_prod` as the index and `5` for the number of buckets to process.
 
-**Output Example**:
-```
-Processing bucket: db_1651609155_1651609155_0_169641EF-FAC0-437D-AC01-A50CA18C51DC for index: main
-Creating directory structure...
-Downloading journal.zst...
-Rebuilding bucket...
-Updating cachemanager_upload.json...
-Bucket processed successfully.
-```
+#### **Skip Rebuilds, Check Uploads and Evictions**
+- Enter `0` for the number of buckets to skip rebuilding and proceed with pending uploads or evictions.
 
 ---
 
-### Step 3: Restart Splunk
-Restart the Splunk instance to detect the processed buckets:
-```bash
-/opt/splunk/bin/splunk restart
-```
-
----
-
-### Step 4: Upload Buckets to SmartStore
-Run the `upload_buckets.py` script to upload the buckets:
-```bash
-python3 upload_buckets.py
-```
-
-**Output Example**:
-```
-Starting upload process...
-Successfully initialized bucket in cacheman...
-Successfully attached bucket...
-Successfully closed bucket...
-Updated bucket_structure.json with uploaded statuses.
-```
-
----
-
-### Step 5: Verify Upload Status
-Use the `check_buckets.py` script to verify if the bucket uploads are complete:
-```bash
-python3 check_buckets.py
-```
-
-**Output Example**:
-```
-Starting check process...
-Bucket upload complete...
-Found receipt.json on S3...
-Updated bucket_structure.json with pendingevict statuses.
-```
-
----
-
-### Step 6: Evict Processed Buckets
-Run the `evict_buckets.py` script to evict the uploaded buckets and update local metadata:
-```bash
-python3 evict_buckets.py
-```
-
-**Output Example**:
-```
-Starting eviction process...
-Successfully evicted bucket...
-Successfully updated cachemanager_local.json...
-Updated bucket_structure.json with evicted statuses.
-```
-
----
-
-## File Descriptions
-
-1. **`generate_bucket_structure.py`**:
-   - Scans the specified S3 bucket for frozen Splunk buckets and generates a JSON structure (`bucket_structure.json`).
-
-2. **`process_buckets_from_json.py`**:
-   - Processes specified buckets locally by:
-     - Downloading `journal.zst` files.
-     - Rebuilding bucket structures.
-     - Updating `cachemanager_upload.json`.
-
-3. **`upload_buckets.py`**:
-   - Uploads the processed buckets to SmartStore using Splunk REST API.
-   - Initializes, attaches, and closes buckets in the cacheman.
-
-4. **`check_buckets.py`**:
-   - Verifies the upload status of buckets using Splunk REST API.
-   - Updates bucket statuses to `"pendingevict"` if upload is complete and the `receipt.json` is found in S3.
-
-5. **`evict_buckets.py`**:
-   - Evicts uploaded buckets and creates/updates a `cachemanager_local.json` file in the local bucket directory.
-
-6. **`process_bucket.sh`**:
-   - A utility script to handle individual bucket processing tasks.
+### **License**
+This script is provided under the MIT License. Use at your own risk.
