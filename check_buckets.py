@@ -1,127 +1,148 @@
-import json
-import time
-import requests
-import boto3
-import hashlib
-import urllib3
-import os
-urllib3.disable_warnings()
 
+# DDAA Restore
 
-# Configuration
-BUCKET_JSON = "bucket_structure.json"
-SPLUNK_URL = "https://localhost:8089"  # Update to your Splunk server URL
-AUTH = ("admin", os.getenv("SPLUNK_PASSWORD"))  # Replace with your Splunk credentials
-BUCKET2 = "livehybrid-splunk-s2-testing"  # S3 bucket name
+This repository provides a set of Python scripts and tools to restore, process, upload, and manage Splunk buckets from S3. 
+The workflow includes scanning S3 for frozen buckets, processing them locally, uploading to SmartStore, and managing the lifecycle of these buckets.
 
-# Initialize S3 client
-s3 = boto3.client("s3")
+## Setup Instructions
 
+1. **Install Python 3.13**:
+   Ensure `python3.13-venv` and `python3.13-pip` are installed.
 
-def get_bucket_status(bid):
-    """
-    Queries Splunk REST API to get the upload status and bucket status.
+2. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/livehybrid/ddaa-restore.git
+   cd ddaa-restore
+   ```
 
-    Args:
-        bid (str): The bucket identifier (BID).
+3. **Create and Activate a Virtual Environment**:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
 
-    Returns:
-        tuple: (upload_status, bucket_status)
-    """
-    url = f"{SPLUNK_URL}/services/admin/cacheman/"
-    query = f"|rest /services/admin/cacheman/ | search title=\"bid|{bid}|\" | table title cm:bucket.upload_status cm:bucket.status"
+4. **Install Dependencies**:
+   ```bash
+   pip install requests boto3
+   ```
 
-    response = requests.post(
-        f"{SPLUNK_URL}/services/search/jobs",
-        auth=AUTH,
-        data={"search": query, "output_mode": "json","exec_mode":"oneshot"},
-        verify=False  # Disable SSL verification for localhost; adjust as needed
-    )
-    if response.status_code == 200:
-        results = response.json()["results"]
-        for result in results:
-            if result["title"] == f"bid|{bid}|":
-                return result["cm:bucket.upload_status"], result["cm:bucket.status"]
+---
 
-    return None, None
+## Process Workflow
 
+### Step 1: Generate the Bucket Structure
+Run the `generate_bucket_structure.py` script to scan the S3 bucket for frozen Splunk buckets:
+```bash
+python3 generate_bucket_structure.py
+```
 
-def check_receipt_on_s3(index_name, bucket_num, server_guid):
-    """
-    Check if the receipt.json file exists on S3 for the given bucket.
+**Output**: The script scans the specified S3 bucket and generates a `bucket_structure.json` file:
+```
+Scanning S3 bucket: scde-3usvpx5d8elc6o712-d0hrpb07azl9-testing2...
+Bucket structure saved to bucket_structure.json
+```
 
-    Args:
-        index_name (str): The index name.
-        bucket_num (str): The bucket number.
-        server_guid (str): The server GUID.
+---
 
-    Returns:
-        bool: True if the receipt.json file exists, False otherwise.
-    """
-    sha_input = f"{bucket_num}~{server_guid}"
-    sha1_hash = hashlib.sha1(sha_input.encode()).hexdigest()
-    s3_key = f"{index_name}/db/{sha1_hash[:2]}/{sha1_hash[2:4]}/{bucket_num}~{server_guid}/receipt.json"
-    try:
-        s3.head_object(Bucket=BUCKET2, Key=s3_key)
-        print(f"Found receipt.json on S3: {s3_key}")
-        return True
-    except s3.exceptions.ClientError:
-        print(f"Missing receipt.json on S3: {s3_key}")
-        return False
+### Step 2: Process Buckets Locally
+Use the `process_buckets_from_json.py` script to process buckets locally:
+```bash
+python3 process_buckets_from_json.py
+```
 
+- **Prompt 1**: Enter the index name (e.g., `main`).
+- **Prompt 2**: Enter the number of buckets to process (e.g., `2`).
 
-def process_uploaded_buckets(bucket_json):
-    """
-    Processes buckets with status "uploaded" in the JSON file.
+**Output Example**:
+```
+Processing bucket: db_1651609155_1651609155_0_169641EF-FAC0-437D-AC01-A50CA18C51DC for index: main
+Creating directory structure...
+Downloading journal.zst...
+Rebuilding bucket...
+Updating cachemanager_upload.json...
+Bucket processed successfully.
+```
 
-    Args:
-        bucket_json (str): Path to the bucket_structure.json file.
-    """
-    # Load the JSON file
-    with open(bucket_json, "r") as file:
-        bucket_data = json.load(file)
+---
 
-    modified = False
+### Step 3: Restart Splunk
+Restart the Splunk instance to detect the processed buckets:
+```bash
+/opt/splunk/bin/splunk restart
+```
 
-    for index_name, buckets in bucket_data.items():
-        for bucket_info in buckets:
-            if bucket_info["status"] == "uploaded":
-                bucket_name = bucket_info["bucket"]
-                bucket_parts = bucket_name.split("_")
-                bucket_num = bucket_parts[3]
-                server_guid = bucket_parts[4]
-                bid = f"{index_name}~{bucket_num}~{server_guid}"
+---
 
-                # Check upload status
-                while True:
-                    print(f"Checking bid={bid} for path=/opt/splunk/var/lib/splunk/{index_name}/db/{bucket_name}")
-                    upload_status, bucket_status = get_bucket_status(bid)
+### Step 4: Upload Buckets to SmartStore
+Run the `upload_buckets.py` script to upload the buckets:
+```bash
+python3 upload_buckets.py
+```
 
-                    if upload_status == "idle": #and bucket_status == "remote":
-                        print(f"Bucket upload complete: BID={bid}, upload_status={upload_status}, bucket_status={bucket_status}")
-                        break
-                    else:
-                        print(f"Waiting for bucket upload: BID={bid}, upload_status={upload_status}, bucket_status={bucket_status}")
-                        time.sleep(5)
+**Output Example**:
+```
+Starting upload process...
+Successfully initialized bucket in cacheman...
+Successfully attached bucket...
+Successfully closed bucket...
+Updated bucket_structure.json with uploaded statuses.
+```
 
-                # Check receipt.json in S3
-                if check_receipt_on_s3(index_name, bucket_num, server_guid):
-                    bucket_info["status"] = "pendingevict"
-                    modified = True
+---
 
-    # Save updated JSON file if any changes were made
-    if modified:
-        with open(bucket_json, "w") as file:
-            json.dump(bucket_data, file, indent=4)
-        print(f"Updated {bucket_json} with pendingevict statuses.")
-    else:
-        print("No buckets to update.")
+### Step 5: Verify Upload Status
+Use the `check_buckets.py` script to verify if the bucket uploads are complete:
+```bash
+python3 check_buckets.py
+```
 
+**Output Example**:
+```
+Starting check process...
+Bucket upload complete...
+Found receipt.json on S3...
+Updated bucket_structure.json with pendingevict statuses.
+```
 
-def main():
-    print(f"Starting check process for buckets in {BUCKET_JSON}...")
-    process_uploaded_buckets(BUCKET_JSON)
+---
 
+### Step 6: Evict Processed Buckets
+Run the `evict_buckets.py` script to evict the uploaded buckets and update local metadata:
+```bash
+python3 evict_buckets.py
+```
 
-if __name__ == "__main__":
-    main()
+**Output Example**:
+```
+Starting eviction process...
+Successfully evicted bucket...
+Successfully updated cachemanager_local.json...
+Updated bucket_structure.json with evicted statuses.
+```
+
+---
+
+## File Descriptions
+
+1. **`generate_bucket_structure.py`**:
+   - Scans the specified S3 bucket for frozen Splunk buckets and generates a JSON structure (`bucket_structure.json`).
+
+2. **`process_buckets_from_json.py`**:
+   - Processes specified buckets locally by:
+     - Downloading `journal.zst` files.
+     - Rebuilding bucket structures.
+     - Updating `cachemanager_upload.json`.
+
+3. **`upload_buckets.py`**:
+   - Uploads the processed buckets to SmartStore using Splunk REST API.
+   - Initializes, attaches, and closes buckets in the cacheman.
+
+4. **`check_buckets.py`**:
+   - Verifies the upload status of buckets using Splunk REST API.
+   - Updates bucket statuses to `"pendingevict"` if upload is complete and the `receipt.json` is found in S3.
+
+5. **`evict_buckets.py`**:
+   - Evicts uploaded buckets and creates/updates a `cachemanager_local.json` file in the local bucket directory.
+
+6. **`process_bucket.sh`**:
+   - A utility script to handle individual bucket processing tasks.
