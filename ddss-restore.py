@@ -14,7 +14,7 @@ urllib3.disable_warnings()
 BUCKET_JSON = "bucket_structure.json"
 SPLUNK_URL = "https://localhost:8089"  # Update with your Splunk server URL
 AUTH = ("admin", os.getenv("SPLUNK_PASSWORD"))  # Replace with Splunk credentials
-DDAA_BUCKET_NAME = "scde-3usvpx5d8elc6o712-d0hrpb07azl9-testing2"
+DDSS_BUCKET_NAME = "scde-3usvpx5d8elc6o712-d0hrpb07azl9-testing2"
 S2_BUCKET_NAME = "livehybrid-splunk-s2-testing"
 LOCAL_BASE_PATH = "/opt/splunk/var/lib/splunk"
 PROCESS_BUCKET_SCRIPT = "./process_bucket.sh"
@@ -519,8 +519,8 @@ def evict_buckets():
         print("No pending buckets to evict.")
 
 def main():
-    print("Starting DDAA Restore Workflow...")
-    generate_bucket_structure(DDAA_BUCKET_NAME, "")
+    print("Starting DDSS Restore Workflow...")
+    generate_bucket_structure(DDSS_BUCKET_NAME, "")
     index_name = input("Enter index name: ")
     num_buckets = int(input("Enter number of buckets to process: "))
     process_buckets(index_name, num_buckets)

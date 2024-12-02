@@ -1,5 +1,5 @@
 
-# **DDAA Restore Workflow**
+# **DDSS Restore Workflow**
 
 This Python script provides a comprehensive workflow for managing the restore and SmartStore integration process for Splunk buckets from S3, including:
 
@@ -36,7 +36,7 @@ This Python script provides a comprehensive workflow for managing the restore an
    - Update the script with your Splunk credentials (`AUTH`) and URL (`SPLUNK_URL`).
 
 3. **AWS Configuration**:
-   - Configure AWS credentials with access to the required S3 buckets (`DDAA_BUCKET_NAME` and `S2_BUCKET_NAME`):
+   - Configure AWS credentials with access to the required S3 buckets (`DDSS_BUCKET_NAME` and `S2_BUCKET_NAME`):
      ```bash
      aws configure
      ```
@@ -58,7 +58,7 @@ python dda_restore_workflow.py
 ### **Workflow**
 
 1. **Generate Bucket Structure**:
-   - The script scans the source S3 bucket (`DDAA_BUCKET_NAME`) and generates `bucket_structure.json` with the following statuses:
+   - The script scans the source S3 bucket (`DDSS_BUCKET_NAME`) and generates `bucket_structure.json` with the following statuses:
      - **`todo`**: No local file or receipt found in S3.
      - **`pendingupload`**: Bucket exists locally but no receipt found in S3.
      - **`pendingevict`**: Bucket exists locally and receipt found in S3.
@@ -96,7 +96,7 @@ python dda_restore_workflow.py
 
 ### **File Structure**
 
-#### **Source S3 Bucket (`DDAA_BUCKET_NAME`)**:
+#### **Source S3 Bucket (`AA_BUCKET_NAME`)**:
 ```
 <index_name>/
   db_1651670906_1651669557_0_CEB1E2B6-34F2-40EB-A2EF-10C5531556F9/
@@ -129,7 +129,7 @@ python dda_restore_workflow.py
 ### **Status Flow**
 
 1. **Initial Status**:
-   - Scanned from `DDAA_BUCKET_NAME` and categorized based on local and secondary S3 checks:
+   - Scanned from `DDSS_BUCKET_NAME` and categorized based on local and secondary S3 checks:
      - `todo`, `pendingupload`, `pendingevict`, `done`.
 
 2. **After Rebuilding**:
@@ -146,7 +146,7 @@ python dda_restore_workflow.py
 ### **Key Functions**
 
 - **`generate_bucket_structure()`**:
-  - Scans `DDAA_BUCKET_NAME` and generates the initial `bucket_structure.json`.
+  - Scans `DDSS_BUCKET_NAME` and generates the initial `bucket_structure.json`.
 
 - **`process_buckets()`**:
   - Processes buckets with `todo` status and updates them to `pendingupload`.
@@ -165,7 +165,7 @@ python dda_restore_workflow.py
 ### **Troubleshooting**
 
 - **AWS Permissions**:
-  - Ensure the IAM user has `s3:ListBucket` and `s3:GetObject` permissions for `DDAA_BUCKET_NAME` and `S2_BUCKET_NAME`.
+  - Ensure the IAM user has `s3:ListBucket` and `s3:GetObject` permissions for `DDSS_BUCKET_NAME` and `S2_BUCKET_NAME`.
 
 - **Splunk API Errors**:
   - Verify Splunk credentials and ensure the server is accessible at `SPLUNK_URL`.
@@ -179,7 +179,7 @@ python dda_restore_workflow.py
 
 #### **Generate Bucket Structure**
 ```bash
-python dda_restore_workflow.py
+python ddss-restore.py
 ```
 
 #### **Rebuild Buckets**
